@@ -77,7 +77,7 @@ Smart Autotune Thermostat ( SAT ) is available in [HACS][hacs] (Home Assistant C
 
 Use this link to directly go to the repository in HACS
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Alexwijn&repository=SAT)
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=clau-bucur&repository=SAT)
 
 _or_
 
@@ -342,15 +342,15 @@ The OPV is a crucial value that determines the boiler's on/off times when the Ov
 <!-- Badges -->
 
 [hacs-url]: https://github.com/hacs/integration
-[hacs-badge]: https://img.shields.io/badge/hacs-default-orange.svg?style=for-the-badge
-[release-badge]: https://img.shields.io/github/v/tag/Alexwijn/SAT?style=for-the-badge
-[downloads-badge]: https://img.shields.io/github/downloads/Alexwijn/SAT/total?style=for-the-badge
-[build-badge]: https://img.shields.io/github/actions/workflow/status/Alexwijn/SAT/pytest.yml?branch=develop&style=for-the-badge
+[hacs-badge]: https://img.shields.io/badge/hacs-custom-orange.svg?style=for-the-badge
+[release-badge]: https://img.shields.io/github/v/tag/clau-bucur/SAT?style=for-the-badge
+[downloads-badge]: https://img.shields.io/github/downloads/clau-bucur/SAT/total?style=for-the-badge
+[build-badge]: https://img.shields.io/github/actions/workflow/status/clau-bucur/SAT/pytest.yml?branch=codex%2Fsat-reliability&style=for-the-badge
 [discord-badge]: https://img.shields.io/discord/1184879273991995515?label=Discord&logo=discord&logoColor=white&style=for-the-badge
 
 <!-- References -->
 
 [hacs]: https://hacs.xyz
 [home-assistant]: https://www.home-assistant.io/
-[release-url]: https://github.com/Alexwijn/SAT/releases
+[release-url]: https://github.com/clau-bucur/SAT/releases
 [discord-url]: https://discord.gg/jnVXpzqGEq
