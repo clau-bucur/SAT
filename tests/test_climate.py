@@ -14,6 +14,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.sat.climate import SatClimate
 from custom_components.sat.entity import SatEntity
 from custom_components.sat.const import *
+from custom_components.sat.coordinator import DeviceState
 from custom_components.sat.fake import SatFakeCoordinator
 from tests.const import DEFAULT_USER_DATA
 
@@ -334,3 +335,61 @@ async def test_added_climate_registers_scheduler_cleanup(
         await scheduler_climate.async_added_to_hass()
 
     on_remove.assert_called_once_with(scheduler_climate._async_stop_control_heating_loop)
+
+
+@pytest.mark.parametrize("active", [False, True], ids=["already-off", "already-on"])
+async def test_closed_valves_stop_active_heater(
+    hass: HomeAssistant, scheduler_climate: SatClimate, active: bool
+) -> None:
+    """An ongoing heat request cannot keep the boiler on after the last valve closes."""
+    scheduler_climate._radiators = ["climate.radiator"]
+    hass.states.async_set(
+        "climate.radiator", HVACMode.HEAT,
+        {"hvac_action": "idle", "temperature": 21, "current_temperature": 21.5},
+    )
+    coordinator = scheduler_climate._coordinator
+    if active:
+        await coordinator.async_set_heater_state(DeviceState.ON)
+    assert not scheduler_climate.valves_open
+
+    with patch.object(
+        coordinator, "async_set_heater_state",
+        new=AsyncMock(wraps=coordinator.async_set_heater_state),
+    ) as heater:
+        await scheduler_climate.async_set_heater_state(DeviceState.ON)
+
+    assert not coordinator.device_active
+    if active:
+        heater.assert_awaited_once_with(DeviceState.OFF)
+    else:
+        heater.assert_not_awaited()
+
+
+@pytest.mark.parametrize("active", [False, True], ids=["start-heating", "keep-heating"])
+@pytest.mark.parametrize("radiator", [False, True], ids=["no-controlled-valves", "open-valve"])
+async def test_open_valves_allow_heating_without_redundant_commands(
+    hass: HomeAssistant, scheduler_climate: SatClimate, active: bool, radiator: bool
+) -> None:
+    """The valve safeguard preserves unzoned systems and normal open-valve heating."""
+    if radiator:
+        scheduler_climate._radiators = ["climate.radiator"]
+        hass.states.async_set(
+            "climate.radiator", HVACMode.HEAT,
+            {"hvac_action": "heating", "temperature": 21, "current_temperature": 20},
+        )
+    coordinator = scheduler_climate._coordinator
+    if active:
+        await coordinator.async_set_heater_state(DeviceState.ON)
+    assert scheduler_climate.valves_open
+
+    with patch.object(
+        coordinator, "async_set_heater_state",
+        new=AsyncMock(wraps=coordinator.async_set_heater_state),
+    ) as heater:
+        await scheduler_climate.async_set_heater_state(DeviceState.ON)
+
+    assert coordinator.device_active
+    if active:
+        heater.assert_not_awaited()
+    else:
+        heater.assert_awaited_once_with(DeviceState.ON)

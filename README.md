@@ -1,14 +1,18 @@
 # Smart Autotune Thermostat
 
 This is [clau-bucur's fork](https://github.com/clau-bucur/SAT) of
-[Alexwijn/SAT](https://github.com/Alexwijn/SAT), based on upstream **4.2.1**.
-Fork release **4.2.2** contains these focused reliability changes:
+[Alexwijn/SAT](https://github.com/Alexwijn/SAT). Fork release **4.2.3** merges
+upstream `develop` through commit `7d43560` and retains these reliability fixes:
 
 - Keep the periodic heating scheduler on Home Assistant's event loop, recover
   overdue pending timers, and execute forced runs immediately.
 - Cancel pending control timers and unsubscribe ESPHome listeners during unload.
 - Prefer modern ESPHome `MAC/0/domain/key` entity identifiers, with a fallback to
   the legacy `MAC-domain-key` format.
+
+The upstream merge also corrects ESPHome DHW detection and flame/DHW event
+subscriptions, shuts heating down when all configured valves close, finishes
+coordinator setup before calibration, and updates EMS heating activation.
 
 Heating algorithms, PID tuning, presets, and the `sat` integration domain are
 unchanged. Future upstream changes must be merged without dropping these fixes.
@@ -133,9 +137,11 @@ number:
       name: t_dhw_set
       step: 1
       restore_value: true
+      initial_value: 45
     t_set:
       name: t_set
       restore_value: true
+      initial_value: 10
     max_t_set:
       name: max_t_set
       step: 1
@@ -171,6 +177,8 @@ binary_sensor:
   - platform: opentherm
     flame_on:
       name: flame_on
+    dhw_active:
+      name: dhw_active
 
 switch:
   - platform: opentherm
