@@ -1,5 +1,23 @@
 # Smart Autotune Thermostat
 
+This is [clau-bucur's fork](https://github.com/clau-bucur/SAT) of
+[Alexwijn/SAT](https://github.com/Alexwijn/SAT), based on upstream **4.2.1**.
+Fork release **4.2.2** contains these focused reliability changes:
+
+- Keep the periodic heating scheduler on Home Assistant's event loop, recover
+  overdue pending timers, and execute forced runs immediately.
+- Cancel pending control timers and unsubscribe ESPHome listeners during unload.
+- Prefer modern ESPHome `MAC/0/domain/key` entity identifiers, with a fallback to
+  the legacy `MAC-domain-key` format.
+
+Heating algorithms, PID tuning, presets, and the `sat` integration domain are
+unchanged. Future upstream changes must be merged without dropping these fixes.
+To install through HACS, add `clau-bucur/SAT` as a custom **Integration** repository
+and download a release published by this fork. Do not also manage the upstream
+repository as an installed integration, because both write `custom_components/sat`.
+
+The documentation below is retained from upstream.
+
 [![hacs][hacs-badge]][hacs-url]
 [![release][release-badge]][release-url]
 ![build][build-badge]

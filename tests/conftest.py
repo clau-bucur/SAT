@@ -5,8 +5,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import assert_setup_component, MockConfigEntry
 
-from custom_components.sat.const import DOMAIN, CLIMATE, COORDINATOR
+from custom_components.sat.const import DOMAIN, CLIMATE, COORDINATOR, CONF_ERROR_MONITORING
 from custom_components.sat.climate import SatClimate
+from custom_components.sat.config_flow import SatFlowHandler
 from custom_components.sat.fake import SatFakeCoordinator
 from tests.const import DEFAULT_USER_DATA
 
@@ -31,8 +32,15 @@ async def entry(hass: HomeAssistant, domains: list, data: dict, options: dict, c
     user_data = DEFAULT_USER_DATA.copy()
     user_data.update(data)
 
-    config_entry = MockConfigEntry(domain=DOMAIN, data=user_data, options=options)
-    await hass.config_entries.async_add(config_entry)
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=SatFlowHandler.VERSION,
+        data=user_data,
+        options={**options, CONF_ERROR_MONITORING: False},
+    )
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
 
     return config_entry
 

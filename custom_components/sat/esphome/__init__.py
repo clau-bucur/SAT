@@ -49,6 +49,7 @@ class SatEspHomeCoordinator(SatDataUpdateCoordinator, SatEntityCoordinator):
 
         self._entity_registry: EntityRegistry = entity_registry.async_get(hass)
         self._entities: list[RegistryEntry] = entity_registry.async_entries_for_device(self._entity_registry, self._device.id)
+        self._state_change_unsub = None
 
     @property
     def device_id(self) -> str:
@@ -157,9 +158,18 @@ class SatEspHomeCoordinator(SatDataUpdateCoordinator, SatEntityCoordinator):
         ]))
 
         # Track those entities so the coordinator can be updated when something changes
-        async_track_state_change_event(self.hass, entities, self.async_state_change_event)
+        self._state_change_unsub = async_track_state_change_event(
+            self.hass, entities, self.async_state_change_event
+        )
 
         await super().async_added_to_hass()
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Release the coordinator's ESPHome state subscription."""
+        if self._state_change_unsub is not None:
+            self._state_change_unsub()
+            self._state_change_unsub = None
+        await super().async_will_remove_from_hass()
 
     async def async_state_change_event(self, _event: Event[EventStateChangedData]):
         await self.async_notify_listeners()
@@ -190,9 +200,18 @@ class SatEspHomeCoordinator(SatDataUpdateCoordinator, SatEntityCoordinator):
         await super().async_set_control_max_setpoint(value)
 
     def _get_entity_id(self, domain: str, key: str):
-        unique_id = f"{self._mac_address.upper()}-{domain}-{key}"
-        _LOGGER.debug(f"Attempting to find the unique_id of {unique_id}")
-        return self._entity_registry.async_get_entity_id(domain, esphome.DOMAIN, unique_id)
+        mac_address = self._mac_address.upper()
+        # ESPHome now uses slash-separated IDs with a device index.
+        # Keep the legacy format as a fallback for older installations.
+        for unique_id in (
+            f"{mac_address}/0/{domain}/{key}",
+            f"{mac_address}-{domain}-{key}",
+        ):
+            _LOGGER.debug("Attempting to find the unique_id of %s", unique_id)
+            entity_id = self._entity_registry.async_get_entity_id(domain, esphome.DOMAIN, unique_id)
+            if entity_id is not None:
+                return entity_id
+        return None
 
     async def _send_command(self, domain: str, service: str, _key: str, payload: dict):
         """Helper method to send a command to a specified domain and service."""

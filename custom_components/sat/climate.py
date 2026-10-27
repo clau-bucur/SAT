@@ -28,7 +28,7 @@ from homeassistant.components.climate import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE, STATE_UNAVAILABLE, STATE_UNKNOWN, ATTR_ENTITY_ID, STATE_ON, STATE_OFF, EVENT_HOMEASSISTANT_STARTED
-from homeassistant.core import HomeAssistant, ServiceCall, Event, CoreState, EventStateChangedData, HassJob
+from homeassistant.core import HomeAssistant, ServiceCall, Event, CoreState, EventStateChangedData, HassJob, callback
 from homeassistant.helpers import entity_registry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval, async_call_later
@@ -138,6 +138,8 @@ class SatClimate(SatEntity, ClimateEntity, RestoreEntity):
             self._attr_supported_features |= ClimateEntityFeature.TURN_OFF
 
         self._control_heating_loop_unsub: Optional[Callable[[], None]] = None
+        self._control_heating_loop_deadline: Optional[float] = None
+        self._control_heating_loop_stopped = False
 
         # System Configuration
         self._attr_name = str(config_entry.data.get(CONF_NAME))
@@ -197,6 +199,7 @@ class SatClimate(SatEntity, ClimateEntity, RestoreEntity):
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added."""
         await super().async_added_to_hass()
+        self.async_on_remove(self._async_stop_control_heating_loop)
 
         # Restore the previous state if available, or set default values
         await self._restore_previous_state_or_set_defaults()
@@ -903,28 +906,52 @@ class SatClimate(SatEntity, ClimateEntity, RestoreEntity):
 
         self._sensors.append(entity_id)
 
-    def schedule_control_heating_loop(self, _time: Optional[datetime] = None, force: bool = False, ) -> None:
-        """Schedule a debounced execution of the heating control loop."""
-        # Force immediate execution
-        if force:
-            # Cancel previous scheduled run, if any
-            if self._control_heating_loop_unsub is not None:
-                self._control_heating_loop_unsub()
-                self._control_heating_loop_unsub = None
-
-                self.hass.async_create_task(self.async_control_heating_loop())
-                return
-
-        # If a run is already scheduled, do nothing.
+    @callback
+    def _async_cancel_control_heating_loop(self) -> None:
+        """Cancel and forget the pending control timer."""
         if self._control_heating_loop_unsub is not None:
+            self._control_heating_loop_unsub()
+        self._control_heating_loop_unsub = None
+        self._control_heating_loop_deadline = None
+
+    @callback
+    def _async_stop_control_heating_loop(self) -> None:
+        """Prevent queued callbacks from controlling an unloaded entity."""
+        self._control_heating_loop_stopped = True
+        self._async_cancel_control_heating_loop()
+
+    @callback
+    def schedule_control_heating_loop(self, _time: Optional[datetime] = None, force: bool = False) -> None:
+        """Schedule control on the event loop and recover stale timer state."""
+        if self._control_heating_loop_stopped:
             return
 
-        self._control_heating_loop_unsub = async_call_later(self.hass, 10, HassJob(self.async_control_heating_loop))
+        if force:
+            self._async_cancel_control_heating_loop()
+            self.hass.async_create_task(self.async_control_heating_loop())
+            return
+
+        if self._control_heating_loop_unsub is not None:
+            if (
+                self._control_heating_loop_deadline is not None
+                and monotonic() <= self._control_heating_loop_deadline + 30
+            ):
+                return
+            _LOGGER.warning("Recovering an overdue heating control timer")
+            self._async_cancel_control_heating_loop()
+
+        self._control_heating_loop_deadline = monotonic() + 10
+        self._control_heating_loop_unsub = async_call_later(
+            self.hass, 10, HassJob(self.async_control_heating_loop)
+        )
 
     async def async_control_heating_loop(self, _time: Optional[datetime] = None) -> None:
         """Control the heating based on current temperature, target temperature, and outside temperature."""
-        # Let the sub know we have run
+        # Let the scheduler know we have run
         self._control_heating_loop_unsub = None
+        self._control_heating_loop_deadline = None
+        if self._control_heating_loop_stopped:
+            return
 
         # If the current, target or outside temperature is not available, do nothing
         if self.current_temperature is None or self.target_temperature is None or self.current_outside_temperature is None:
