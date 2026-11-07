@@ -393,3 +393,67 @@ async def test_open_valves_allow_heating_without_redundant_commands(
         heater.assert_not_awaited()
     else:
         heater.assert_awaited_once_with(DeviceState.ON)
+
+
+@pytest.mark.parametrize(*[
+    "domains, data, options, config",
+    [(
+            [(TEMPLATE_DOMAIN, 1)],
+            {
+                CONF_MODE: MODE_FAKE,
+                CONF_HEATING_SYSTEM: HEATING_SYSTEM_RADIATORS,
+                CONF_MINIMUM_SETPOINT: 57,
+                CONF_MAXIMUM_SETPOINT: 75,
+                CONF_ROOMS: ["climate.room1"],
+            },
+            {
+                CONF_HEATING_CURVE_COEFFICIENT: 1.8,
+                CONF_FORCE_PULSE_WIDTH_MODULATION: True,
+            },
+            {
+                TEMPLATE_DOMAIN: [
+                    {
+                        SENSOR_DOMAIN: [
+                            {
+                                "name": "test_inside_sensor",
+                                "state": "{{ 20.9 | float }}",
+                            },
+                            {
+                                "name": "test_outside_sensor",
+                                "state": "{{ 9.9 | float }}",
+                            }
+                        ]
+                    },
+                ],
+            },
+    )],
+])
+async def test_room_turned_off_resets_pid_error(
+    hass: HomeAssistant, entry: MockConfigEntry, climate: SatClimate, coordinator: SatFakeCoordinator
+) -> None:
+    """A room that turns off must no longer contribute to the PID error."""
+    await coordinator.async_set_boiler_temperature(57)
+    await climate.async_set_target_temperature(21.0)
+    await climate.async_set_hvac_mode(HVACMode.HEAT)
+
+    hass.states.async_set("climate.room1", HVACMode.HEAT, {
+        "temperature": 25.0,
+        "current_temperature": 15.0,
+        "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
+    })
+    await hass.async_block_till_done()
+
+    assert climate.max_error.entity_id == "climate.room1"
+    assert climate.max_error.value == 10.0
+    assert climate.pid.last_error == 10.0
+
+    hass.states.async_set("climate.room1", HVACMode.OFF, {
+        "temperature": 25.0,
+        "current_temperature": 15.0,
+        "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
+    })
+    await hass.async_block_till_done()
+
+    assert climate.max_error.entity_id == climate.entity_id
+    assert climate.max_error.value < 10.0
+    assert climate.pid.last_error == climate.max_error.value
