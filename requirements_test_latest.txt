@@ -1,7 +1,8 @@
 aiohttp_cors
 aiodiscover
 aiodhcpwatcher
-sentry_sdk
+# SAT currently uses the Sentry 2.x Hub API.
+sentry_sdk>=2.19.2,<3
 pyotgw==2.2.2
 scapy
 janus
