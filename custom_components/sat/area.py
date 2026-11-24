@@ -240,6 +240,9 @@ class Area:
         if valve_position is not None:
             return valve_position >= 10.0
 
+        if not self.is_calling:
+            return False
+
         if not self.pid.available:
             return False
 
