@@ -6,6 +6,7 @@ import logging
 from collections import deque
 from dataclasses import dataclass, replace
 from datetime import datetime
+from math import isfinite
 from typing import Callable, Optional
 
 from homeassistant.components.climate import HVACMode
@@ -523,19 +524,14 @@ class SatHeatingControl:
             return
 
         if not device_state.flame_active:
-            if (return_temperature := device_state.return_temperature) is None:
-                _LOGGER.warning("Setpoint override (flame off): no return temperature found.")
-                return
-
-            flame_off_offset = config.flame_off_setpoint_offset_celsius
-            flame_off_hold_setpoint = clamp(return_temperature + flame_off_offset, COLD_SETPOINT, self._config.limits.maximum_setpoint)
+            flame_off_hold_setpoint = self._pwm_ignition_setpoint(requested_setpoint)
 
             self._control_setpoint = flame_off_hold_setpoint
             self._flame_off_hold_setpoint = flame_off_hold_setpoint
 
             _LOGGER.debug(
-                "Setpoint override (flame off): return=%.1f°C offset=%.1f°C -> %.1f°C (intended=%.1f°C)",
-                return_temperature, flame_off_offset, self._flame_off_hold_setpoint, requested_setpoint,
+                "Setpoint override (flame off): %.1f°C (intended=%.1f°C)",
+                self._flame_off_hold_setpoint, requested_setpoint,
             )
 
             return
@@ -545,8 +541,8 @@ class SatHeatingControl:
 
         if elapsed_since_flame_on < suppression_delay:
             remaining_hold = suppression_delay - elapsed_since_flame_on
-            if self._flame_off_hold_setpoint is None and (return_temperature := device_state.return_temperature) is not None:
-                self._flame_off_hold_setpoint = clamp(return_temperature + config.flame_off_setpoint_offset_celsius, COLD_SETPOINT, self._config.limits.maximum_setpoint)
+            if self._flame_off_hold_setpoint is None:
+                self._flame_off_hold_setpoint = self._pwm_ignition_setpoint(requested_setpoint)
 
             if self._flame_off_hold_setpoint is not None:
                 _LOGGER.debug(
@@ -578,6 +574,20 @@ class SatHeatingControl:
         )
 
         self._control_setpoint = suppressed_setpoint
+
+    def _pwm_ignition_setpoint(self, requested_setpoint: float) -> float:
+        """Keep a PWM ON phase usable when the boiler has no valid return sensor."""
+        minimum = max(self._coordinator.minimum_setpoint, COLD_SETPOINT + 0.1)
+        return_temperature = self._coordinator.return_temperature
+
+        if return_temperature is None or not isfinite(return_temperature) or return_temperature <= 0:
+            # Some boilers report an unsupported return sensor as zero. Using
+            # that value would clamp the request to COLD_SETPOINT and turn CH off.
+            setpoint = requested_setpoint
+        else:
+            setpoint = return_temperature + self._config.flame_off_setpoint_offset_celsius
+
+        return clamp(setpoint, minimum, self._config.limits.maximum_setpoint)
 
     def _elapsed_since_flame_on(self) -> float:
         """The tracker may not have seen the current ignition yet, in which case the flame has just come on."""

@@ -11,6 +11,7 @@ from custom_components.sat.const import (
     CONF_FLOW_SETPOINT_OFFSET_CELSIUS,
     CONF_FORCE_PULSE_WIDTH_MODULATION,
     CONF_HEATING_SYSTEM,
+    CONF_MAXIMUM_SETPOINT,
     CONF_MINIMUM_SETPOINT,
     CONF_MODE,
     CONF_MODULATION_SUPPRESSION_DELAY_SECONDS,
@@ -218,6 +219,62 @@ async def test_pwm_flame_off_return_offset(hass, monkeypatch, coordinator):
     await heating_control.update(_make_demand(40.0))
 
     assert heating_control.control_setpoint == 30.0 + OPTIONS_DEFAULTS[CONF_FLAME_OFF_SETPOINT_OFFSET_CELSIUS]
+
+
+@pytest.mark.parametrize("return_temperature", [None, 0.0, -1.0, float("nan"), float("inf"), -float("inf")])
+@pytest.mark.parametrize("requested_setpoint", [22.1, 40.0])
+async def test_pwm_ignition_without_valid_return_still_enables_heat(hass, monkeypatch, coordinator, return_temperature, requested_setpoint):
+    _update_coordinator_config(coordinator)
+    coordinator._config.data[CONF_MINIMUM_SETPOINT] = 26.4
+    coordinator._config.options[CONF_MAXIMUM_SETPOINT] = 55.0
+    monkeypatch.setattr(type(coordinator), "return_temperature", property(lambda self: return_temperature))
+
+    heating_control = SatHeatingControl(hass=hass, coordinator=coordinator, config=coordinator._config)
+    _enable_pwm(heating_control, PWMStatus.ON)
+    monkeypatch.setattr(heating_control._pwm, "update", lambda *args, **kwargs: None)
+
+    await coordinator.async_set_heater_state(HeaterState.OFF)
+    await heating_control.update(_make_demand(requested_setpoint))
+
+    assert heating_control.control_setpoint == max(26.4, requested_setpoint)
+    assert coordinator.active is True
+
+
+@pytest.mark.parametrize(("return_temperature", "expected"), [(1.0, 26.4), (30.0, 48.0), (60.0, 55.0)])
+async def test_pwm_ignition_honors_boiler_temperature_limits(hass, monkeypatch, coordinator, return_temperature, expected):
+    _update_coordinator_config(coordinator)
+    coordinator._config.data[CONF_MINIMUM_SETPOINT] = 26.4
+    coordinator._config.options[CONF_MAXIMUM_SETPOINT] = 55.0
+    monkeypatch.setattr(type(coordinator), "return_temperature", property(lambda self: return_temperature))
+
+    heating_control = SatHeatingControl(hass=hass, coordinator=coordinator, config=coordinator._config)
+    _enable_pwm(heating_control, PWMStatus.ON)
+    monkeypatch.setattr(heating_control._pwm, "update", lambda *args, **kwargs: None)
+
+    await heating_control.update(_make_demand(40.0))
+
+    assert heating_control.control_setpoint == expected
+    assert coordinator.active is True
+
+
+async def test_pwm_invalid_return_fallback_is_held_after_ignition(hass, monkeypatch, coordinator):
+    _update_coordinator_config(coordinator)
+    monkeypatch.setattr(type(coordinator), "return_temperature", property(lambda self: 0.0))
+    monkeypatch.setattr(type(coordinator), "flame_active", property(lambda self: False))
+
+    heating_control = SatHeatingControl(hass=hass, coordinator=coordinator, config=coordinator._config)
+    _enable_pwm(heating_control, PWMStatus.ON)
+    monkeypatch.setattr(heating_control._pwm, "update", lambda *args, **kwargs: None)
+
+    await heating_control.update(_make_demand(45.0))
+    assert heating_control.control_setpoint == 45.0
+
+    monkeypatch.setattr(type(coordinator), "flame_active", property(lambda self: True))
+    heating_control._device_tracker._last_flame_on_at = timestamp()
+    await heating_control.update(_make_demand(40.0))
+
+    assert heating_control.control_setpoint == 45.0
+    assert coordinator.active is True
 
 
 async def test_flame_off_setpoint_held_until_suppression_delay(hass, monkeypatch, coordinator):
